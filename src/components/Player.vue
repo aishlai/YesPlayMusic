@@ -30,16 +30,19 @@
             @click="goToAlbum"
           />
           <div class="track-info" :title="audioSource">
-            <div class="name" @click="goToList">
+            <div
+              :class="['name', { 'has-list': hasList() }]"
+              @click="hasList() && goToList()"
+            >
               {{ currentTrack.name }}
             </div>
             <div class="artist">
               <span
                 v-for="(ar, index) in currentTrack.ar"
                 :key="ar.id"
-                @click="ar.id !== 0 && goToArtist(ar.id)"
+                @click="ar.id && goToArtist(ar.id)"
               >
-                <span :class="ar.id !== 0 ? 'ar' : ''"> {{ ar.name }} </span
+                <span :class="{ ar: ar.id }"> {{ ar.name }} </span
                 ><span v-if="index !== currentTrack.ar.length - 1">, </span>
               </span>
             </div>
@@ -84,9 +87,7 @@
           >
             <svg-icon :icon-class="player.playing ? 'pause' : 'play'"
           /></button-icon>
-          <button-icon
-            :title="$t('player.next')"
-            @click.native="player.playNextTrack"
+          <button-icon :title="$t('player.next')" @click.native="playNextTrack"
             ><svg-icon icon-class="next"
           /></button-icon>
         </div>
@@ -131,6 +132,13 @@
             @click.native="player.switchShuffle"
             ><svg-icon icon-class="shuffle"
           /></button-icon>
+          <button-icon
+            v-if="settings.enableReversedMode"
+            :class="{ active: player.reversed, disabled: player.isPersonalFM }"
+            :title="$t('player.reversed')"
+            @click.native="player.switchReversed"
+            ><svg-icon icon-class="sort-up"
+          /></button-icon>
           <div class="volume-control">
             <button-icon :title="$t('player.mute')" @click.native="player.mute">
               <svg-icon v-show="volume > 0.5" icon-class="volume" />
@@ -173,6 +181,7 @@ import '@/assets/css/slider.css';
 
 import ButtonIcon from '@/components/ButtonIcon.vue';
 import VueSlider from 'vue-slider-component';
+import { goToListSource, hasListSource } from '@/utils/playList';
 
 export default {
   name: 'Player',
@@ -205,6 +214,13 @@ export default {
   methods: {
     ...mapMutations(['toggleLyrics']),
     ...mapActions(['showToast', 'likeATrack']),
+    playNextTrack() {
+      if (this.player.isPersonalFM) {
+        this.player.playNextFMTrack();
+      } else {
+        this.player.playNextTrack();
+      }
+    },
     goToNextTracksPage() {
       if (this.player.isPersonalFM) return;
       this.$route.name === 'next'
@@ -217,22 +233,11 @@ export default {
       let sec = (~~(value % 60)).toString().padStart(2, '0');
       return `${min}:${sec}`;
     },
+    hasList() {
+      return hasListSource();
+    },
     goToList() {
-      if (this.player.playlistSource.id === this.data.likedSongPlaylistID) {
-        this.$router.push({ path: '/library/liked-songs' });
-      } else if (this.player.playlistSource.type === 'url') {
-        this.$router.push({ path: this.player.playlistSource.id });
-      } else if (this.player.playlistSource.type === 'cloudDisk') {
-        this.$router.push({ path: '/library' });
-      } else {
-        this.$router.push({
-          path:
-            '/' +
-            this.player.playlistSource.type +
-            '/' +
-            this.player.playlistSource.id,
-        });
-      }
+      goToListSource();
     },
     goToAlbum() {
       if (this.player.currentTrack.al.id === 0) return;
@@ -319,12 +324,14 @@ export default {
       opacity: 0.88;
       color: var(--color-text);
       margin-bottom: 4px;
-      cursor: pointer;
       display: -webkit-box;
       -webkit-box-orient: vertical;
       -webkit-line-clamp: 1;
       overflow: hidden;
       word-break: break-all;
+    }
+    .has-list {
+      cursor: pointer;
       &:hover {
         text-decoration: underline;
       }

@@ -46,17 +46,25 @@
               <div class="track-info">
                 <div class="title" :title="currentTrack.name">
                   <router-link
-                    :to="`/${player.playlistSource.type}/${player.playlistSource.id}`"
+                    v-if="hasList()"
+                    :to="`${getListPath()}`"
                     @click.native="toggleLyrics"
                     >{{ currentTrack.name }}
                   </router-link>
+                  <span v-else>
+                    {{ currentTrack.name }}
+                  </span>
                 </div>
                 <div class="subtitle">
                   <router-link
+                    v-if="artist.id !== 0"
                     :to="`/artist/${artist.id}`"
                     @click.native="toggleLyrics"
                     >{{ artist.name }}
                   </router-link>
+                  <span v-else>
+                    {{ artist.name }}
+                  </span>
                   <span v-if="album.id !== 0">
                     -
                     <router-link
@@ -147,7 +155,7 @@
                 </button-icon>
                 <button-icon
                   :title="$t('player.next')"
-                  @click.native="player.playNextTrack"
+                  @click.native="playNextTrack"
                 >
                   <svg-icon icon-class="next" />
                 </button-icon>
@@ -183,8 +191,18 @@
               }"
               @click="clickLyricLine(line.time)"
               @dblclick="clickLyricLine(line.time, true)"
-              ><span v-html="formatLine(line)"></span
-            ></div>
+            >
+              <span v-if="line.contents[0]">{{ line.contents[0] }}</span>
+              <br />
+              <span
+                v-if="
+                  line.contents[1] &&
+                  $store.state.settings.showLyricsTranslation
+                "
+                class="translation"
+                >{{ line.contents[1] }}</span
+              >
+            </div>
           </div>
         </transition>
       </div>
@@ -209,6 +227,7 @@ import { lyricParser } from '@/utils/lyrics';
 import ButtonIcon from '@/components/ButtonIcon.vue';
 import * as Vibrant from 'node-vibrant';
 import Color from 'color';
+import { hasListSource, getListSourcePath } from '@/utils/playList';
 
 export default {
   name: 'Lyrics',
@@ -313,6 +332,13 @@ export default {
   methods: {
     ...mapMutations(['toggleLyrics']),
     ...mapActions(['likeATrack']),
+    playNextTrack() {
+      if (this.player.isPersonalFM) {
+        this.player.playNextFMTrack();
+      } else {
+        this.player.playNextTrack();
+      }
+    },
     getLyric() {
       if (!this.currentTrack.id) return;
       return getLyric(this.currentTrack.id).then(data => {
@@ -322,9 +348,31 @@ export default {
           return false;
         } else {
           let { lyric, tlyric } = lyricParser(data);
-          this.lyric = lyric;
-          this.tlyric = tlyric;
-          return true;
+          lyric = lyric.filter(
+            l => !/^作(词|曲)\s*(:|：)\s*无$/.exec(l.content)
+          );
+          let includeAM =
+            lyric.length <= 10 &&
+            lyric.map(l => l.content).includes('纯音乐，请欣赏');
+          if (includeAM) {
+            let reg = /^作(词|曲)\s*(:|：)\s*/;
+            let author = this.currentTrack?.ar[0]?.name;
+            lyric = lyric.filter(l => {
+              let regExpArr = l.content.match(reg);
+              return (
+                !regExpArr || l.content.replace(regExpArr[0], '') !== author
+              );
+            });
+          }
+          if (lyric.length === 1 && includeAM) {
+            this.lyric = [];
+            this.tlyric = [];
+            return false;
+          } else {
+            this.lyric = lyric;
+            this.tlyric = tlyric;
+            return true;
+          }
         }
       });
     },
@@ -333,7 +381,13 @@ export default {
     },
     clickLyricLine(value, startPlay = false) {
       // TODO: 双击选择还会选中文字，考虑搞个右键菜单复制歌词
-      if (window.getSelection().toString().length === 0) {
+      let jumpFlag = false;
+      this.lyric.filter(function (item) {
+        if (item.content == '纯音乐，请欣赏') {
+          jumpFlag = true;
+        }
+      });
+      if (window.getSelection().toString().length === 0 && !jumpFlag) {
         this.player.seek(value);
       }
       if (startPlay === true) {
@@ -360,16 +414,6 @@ export default {
         }
       }, 50);
     },
-    formatLine(line) {
-      const showLyricsTranslation = this.$store.state.settings
-        .showLyricsTranslation;
-      if (showLyricsTranslation && line.contents[1]) {
-        return `<span>${line.contents[0]}<br/>${line.contents[1]}</span>`;
-      } else if (line.contents[0] !== undefined) {
-        return `<span>${line.contents[0]}</span>`;
-      }
-      return 'unknown';
-    },
     moveToFMTrash() {
       this.player.moveToFMTrash();
     },
@@ -384,6 +428,12 @@ export default {
           const color2 = orignColor.lighten(0.28).rotate(-30).rgb().string();
           this.background = `linear-gradient(to top left, ${color}, ${color2})`;
         });
+    },
+    hasList() {
+      return hasListSource();
+    },
+    getListPath() {
+      return getListSourcePath();
     },
   },
 };
@@ -624,19 +674,31 @@ export default {
     max-width: 460px;
     overflow-y: auto;
     transition: 0.5s;
+    scrollbar-width: none; // firefox
 
     .line {
-      padding: 18px;
-      transition: 0.2s;
+      margin: 2px 0;
+      padding: 12px 18px;
+      transition: 0.5s;
       border-radius: 12px;
 
       &:hover {
         background: var(--color-secondary-bg-for-transparent);
       }
+      &:active {
+        transform: scale(0.95);
+      }
 
       span {
         opacity: 0.28;
         cursor: default;
+        font-size: 1em;
+        transition: all 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      span.translation {
+        opacity: 0.2;
+        font-size: 0.95em;
       }
     }
 
@@ -644,9 +706,19 @@ export default {
       background: unset;
     }
 
+    .translation {
+      margin-top: 0.1em;
+    }
+
     .highlight span {
       opacity: 0.98;
-      transition: 0.5s;
+      display: inline-block;
+      font-size: 1.25em;
+    }
+
+    .highlight span.translation {
+      opacity: 0.65;
+      font-size: 1.1em;
     }
   }
 
@@ -705,6 +777,12 @@ export default {
   }
   .right-side .lyrics-container {
     max-width: 100%;
+  }
+}
+
+@media screen and (min-width: 1200px) {
+  .right-side .lyrics-container {
+    max-width: 600px;
   }
 }
 
